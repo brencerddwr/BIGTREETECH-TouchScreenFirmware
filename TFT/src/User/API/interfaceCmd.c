@@ -153,15 +153,17 @@ void sendQueueCmd(void)
           printSetUpdateWaiting(false);
         break;
         
-        #ifdef PS_ON_PIN
         case 80: //M80
-          PS_ON_On();
+          #ifdef PS_ON_PIN
+            PS_ON_On();
+          #endif
           break;
         
         case 81: //M81
-          PS_ON_Off();
+          #ifdef PS_ON_PIN
+            PS_ON_Off();
+          #endif
           break;
-        #endif
         
         case 82: //M82
           eSetRelative(false);
@@ -184,7 +186,7 @@ void sendQueueCmd(void)
           if(cmd_seen('T')) i = (TOOL)(cmd_value() + NOZZLE0);
           if(cmd_seen('S'))
           {	
-            heatSetTargetTemp(i, cmd_value()); 
+            heatSyncTargetTemp(i, cmd_value()); 
           }
           else
           {
@@ -227,6 +229,9 @@ void sendQueueCmd(void)
         }
 
         case 114: //M114
+          #ifdef FIL_RUNOUT_PIN
+            positionSetUpdateWaiting(false);
+          #endif
           break;
 
         case 117: //M117
@@ -239,7 +244,7 @@ void sendQueueCmd(void)
         case 140: //M140
           if(cmd_seen('S'))
           {
-            heatSetTargetTemp(BED,cmd_value()); 
+            heatSyncTargetTemp(BED,cmd_value()); 
           }
           else
           {
@@ -291,7 +296,7 @@ void sendQueueCmd(void)
           {						
             if(cmd_seen(axis_id[i]))			
             {
-              coordinateSetAxis(i,cmd_float());
+              coordinateSetAxisTarget(i,cmd_float());
             }
           }
           if(cmd_seen('F'))			
@@ -317,10 +322,10 @@ void sendQueueCmd(void)
         {
           AXIS i;
           for(i=X_AXIS;i<TOTAL_AXIS;i++)
-          {						
-            if(cmd_seen(axis_id[i]))			
+          {
+            if(cmd_seen(axis_id[i]))
             {                       
-              coordinateSetAxis(i,cmd_float());                 
+              coordinateSetAxisTarget(i,cmd_float());
             }
           }
           break;
