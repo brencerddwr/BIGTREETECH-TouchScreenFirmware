@@ -5,19 +5,6 @@
 #include "stdbool.h"
 #include "GUI.h"
 
-typedef enum
-{
-  PAGE_MAIN = 0,
-  PAGE_HEAT,
-  PAGE_MOVE,
-  PAGE_HOME,
-  PAGE_PRINT,
-  PAGE_EXTRUDE,
-  PAGE_FAN,
-  PAGE_SETTINGS,
-  PAGE_NUM
-}PAGE;
-
 #define IDLE_TOUCH	0xFFFF
 typedef enum
 {
@@ -40,58 +27,25 @@ typedef enum
   KEY_IDLE = IDLE_TOUCH,
 }KEY_VALUES;
 
-#define ITEM_PER_PAGE  8
+#define ITEM_PER_PAGE       8
+#define LISTITEM_PER_PAGE   5
 
-/*-------------------------send gcode-------top*/
-typedef enum
+typedef union
 {
-  GKEY_0 = 0,
-  GKEY_1,
-  GKEY_2,
-  GKEY_3,
-  GKEY_4,
-  GKEY_5,
-  GKEY_6,
-  GKEY_7,
-  GKEY_8,
-  GKEY_9,
-  GKEY_10,
-  GKEY_11,
-  GKEY_12,
-  GKEY_13,
-  GKEY_14,
-  GKEY_15,
-  GKEY_16,
-  GKEY_17,
-  GKEY_18,
-  GKEY_19,
-  GKEY_20,
-  GKEY_21,
-  GKEY_22,
-  GKEY_23,
-  GKEY_IDLE = IDLE_TOUCH,
-}GKEY_VALUES;
-/*-------------------------send gcode-------end*/
-/*-------------------------select mode-------top*/
-#define SELECTMODE 2
-typedef enum
-{
-  MKEY_0 = 0,
-  MKEY_1,
-  MKEY_IDLE = IDLE_TOUCH,
-}MKEY_VALUES;
-/*-------------------------select mode-------end*/
+  uint32_t index;    // language index, address = textSelect(index);
+  void *address;
+}LABEL;
 
 typedef struct
 {
-  int16_t icon;
-  int16_t label;
+  uint16_t icon;
+  LABEL label;
 }ITEM;
 
 typedef struct
 {
-  int16_t title;
-  ITEM    items[ITEM_PER_PAGE];
+  LABEL title;
+  ITEM  items[ITEM_PER_PAGE];
 }MENUITEMS;
 
 
@@ -111,37 +65,58 @@ typedef struct
   int16_t inf;
 }REMINDER;
 
+typedef enum
+{
+  LIST_LABEL = 0,
+  LIST_TOGGLE,
+  LIST_RADIO,
+  LIST_MOREBUTTON,
+  LIST_CUSTOMVALUE,
+}LISTITEM_TYPE;
+
+typedef struct
+{
+  uint16_t icon;
+  LISTITEM_TYPE itemType;
+  LABEL titlelabel;
+  LABEL valueLabel;
+}LISTITEM;
+
+typedef struct
+{
+  LABEL title;
+  //uint16_t titleIconChar;
+  LISTITEM  items[ITEM_PER_PAGE];
+}LISTITEMS;
+
 extern const GUI_RECT exhibitRect;
+extern const GUI_RECT rect_of_key[ITEM_PER_PAGE*2];
 #define CENTER_Y  ((exhibitRect.y1 - exhibitRect.y0)/2 + exhibitRect.y0)
 #define CENTER_X  ((exhibitRect.x1 - exhibitRect.x0 - BYTE_WIDTH)/2 + exhibitRect.x0)
+#define LISTITEM_WIDTH (LCD_WIDTH-(3*START_X)-LIST_ICON_WIDTH)
+#define LISTITEM_HEIGHT ((LCD_HEIGHT-ICON_START_Y-START_X)/5)
+#define LISTICON_SPACE_Y ((LCD_HEIGHT-ICON_START_Y-START_X-(3*LIST_ICON_HEIGHT))/ 2)
 
+void reminderSetUnConnected(void);
 void reminderMessage(int16_t inf, SYS_STATUS status);
 void volumeReminderMessage(int16_t inf, SYS_STATUS status);
 
 void busyIndicator(SYS_STATUS status);
 
+void GUI_RestoreColorDefault(void);
 void menuDrawItem (const ITEM * menuItem, uint8_t positon);
-void menuDrawTitle(const MENUITEMS * menuItems);
+void menuDrawIconOnly(const ITEM *item, uint8_t positon);
+void menuDrawListItem(const LISTITEM *item, uint8_t positon);
+void menuRefreshListPage(void);
+void menuDrawTitle(const uint8_t *content); //(const MENUITEMS * menuItems);
 void menuDrawPage (const MENUITEMS * menuItems);
-
+void menuDrawListPage(const LISTITEMS *listItems);
 void itemDrawIconPress(uint8_t positon, uint8_t is_press);
 KEY_VALUES menuKeyGetValue(void);
+GUI_POINT getIconStartPoint(int index);
 
-//GCODE KEYB fun
-GKEY_VALUES GKeyGetValue(void);
-void DrawGKEY(void);
-bool revinfo(void);
-void DrawEGKEY(void);
-bool SendGcode(void);
-bool BackGKEY(void);
-void showb(void);
-
-//select mode fun
-extern const GUI_RECT rect_of_mode[SELECTMODE];
-extern MKEY_VALUES MKeyGetValue(void);
-extern void selectmode(int8_t  nowMode);
-
+void loopBackEnd(void);
+void loopFrontEnd(void);
 void loopProcess (void);
 
 #endif
-

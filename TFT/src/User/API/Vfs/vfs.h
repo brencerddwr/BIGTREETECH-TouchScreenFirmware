@@ -15,7 +15,7 @@ typedef enum {
     BOARD_SD
 }FS_SOURCE;
 
-typedef struct 
+typedef struct
 {
 	TCHAR title[MAX_PATH_LEN]; // max path depth
 	TCHAR *folder[FOLDER_NUM]; // folder name buffer
@@ -24,12 +24,13 @@ typedef struct
 	uint16_t f_num; // current gcode file number
 	uint16_t cur_page; // current display page index (5 files per page)
 	FS_SOURCE source; //The source of the file. TFT SD or ONBOARD SD.
-}MYFILE;	
+	TCHAR *Longfile[FILE_NUM]; // Long file name buffer from ONBOARD SD only
+}MYFILE;
 
 extern MYFILE  infoFile;
 
 bool mountFS(void);
-bool scanPrintFiles(void); 
+bool scanPrintFiles(void);
 
 TCHAR* getCurFileSource(void);
 void clearInfoFile(void);
@@ -41,4 +42,4 @@ bool IsRootDir(void);
 bool isVolumeExist(uint8_t src);
 void loopVolumeSource(void);
 
-#endif 
+#endif

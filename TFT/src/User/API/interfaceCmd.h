@@ -13,16 +13,15 @@ typedef struct
   uint8_t src;   // 0: TouchScreen Cmd, 1: Serial Port 2 rx Cmd, 2: Serial Port 3 rx Cmd
 }GCODE;
 
-typedef struct 
+typedef struct
 {
   GCODE   queue[CMD_MAX_LIST];
-  uint8_t index_r ; // Ring buffer read position
-  uint8_t index_w ; // Ring buffer write position
-//    u8      parsed ;  //
-  uint8_t count ;   // Count of commands in the queue  
+  uint8_t index_r; // Ring buffer read position
+  uint8_t index_w; // Ring buffer write position
+  uint8_t count;   // Count of commands in the queue
 }QUEUE;
 
-extern QUEUE infoCmd ;
+extern QUEUE infoCmd;
 extern QUEUE infoCacheCmd;
 
 
@@ -36,4 +35,3 @@ void parseQueueCmd(void);
 void sendQueueCmd(void);
 
 #endif
-

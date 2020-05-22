@@ -29,6 +29,7 @@
 
 u32 TSC_Para[7];//У׼ϵ��
 static volatile bool touchScreenIsPress=false;
+bool touchSound = true;
 
 void TS_Get_Coordinates(u16 *x, u16 *y)
 {
@@ -58,15 +59,15 @@ u8 calibrationEnsure(u16 x,u16 y)
   tp_x = XPT2046_Repeated_Compare_AD(CMD_RDX);
   tp_y = XPT2046_Repeated_Compare_AD(CMD_RDY);
 
-  //	
+  //
   lcd_x = (A*tp_x+B*tp_y+C)/K;
   lcd_y = (D*tp_x+E*tp_y+F)/K;
 
 
   if(lcd_x < x+TS_ERR_RANGE && lcd_x>x-TS_ERR_RANGE  && lcd_y > y-TS_ERR_RANGE && lcd_y<y+TS_ERR_RANGE)
-  {		
+  {
     x_offset=(LCD_WIDTH - GUI_StrPixelWidth(textSelect(LABEL_ADJUST_OK))) >> 1;
-    GUI_DispString(x_offset, LCD_HEIGHT-40, textSelect(LABEL_ADJUST_OK), 1);
+    GUI_DispString(x_offset, LCD_HEIGHT-40, textSelect(LABEL_ADJUST_OK));
     Delay_ms(1000);
   }
   else
@@ -74,9 +75,9 @@ u8 calibrationEnsure(u16 x,u16 y)
     while(isPress());
     GUI_SetColor(RED);
     x_offset=(LCD_WIDTH - GUI_StrPixelWidth(textSelect(LABEL_ADJUST_FAILED))) >> 1;
-    GUI_DispString(x_offset, LCD_HEIGHT-40, textSelect(LABEL_ADJUST_FAILED), 1);
-    GUI_DispDec(0,0,lcd_x,3,0,0);
-    GUI_DispDec(0,20,lcd_y,3,0,0);
+    GUI_DispString(x_offset, LCD_HEIGHT-40, textSelect(LABEL_ADJUST_FAILED));
+    GUI_DispDec(0,0,lcd_x,3,0);
+    GUI_DispDec(0,20,lcd_y,3,0);
     Delay_ms(1000);
     return 0;
   }
@@ -98,9 +99,9 @@ void TSC_Calibration(void)
     GUI_SetColor(BLACK);
     GUI_SetBkColor(WHITE);
     x_offset=(LCD_WIDTH - GUI_StrPixelWidth(textSelect(LABEL_ADJUST_TITLE))) >> 1;
-    GUI_DispString(x_offset, 5, textSelect(LABEL_ADJUST_TITLE), 0);
+    GUI_DispString(x_offset, 5, textSelect(LABEL_ADJUST_TITLE));
     x_offset=(LCD_WIDTH - GUI_StrPixelWidth(textSelect(LABEL_ADJUST_INFO))) >> 1;
-    GUI_DispString(x_offset, 25, textSelect(LABEL_ADJUST_INFO), 0);
+    GUI_DispString(x_offset, 25, textSelect(LABEL_ADJUST_INFO));
     GUI_SetColor(RED);
     for(tp_num = 0;tp_num<3;tp_num++)
     {
@@ -126,8 +127,7 @@ void TSC_Calibration(void)
     F = (Y1*(X3*YL2 - X2*YL3) + Y2*(X1*YL3 - X3*YL1) + Y3*(X2*YL1 - X1*YL2));
   }while(calibrationEnsure(LCD_WIDTH/2, LCD_HEIGHT/2)==0);
 
-  GUI_SetColor(FK_COLOR);
-  GUI_SetBkColor(BK_COLOR);
+  GUI_RestoreColorDefault();
 }
 
 
@@ -142,7 +142,7 @@ u16 Key_value(u8 total_rect,const GUI_RECT* menuRect)
     if((x>menuRect[i].x0)&&(x<menuRect[i].x1)&&(y>menuRect[i].y0)&&(y<menuRect[i].y1))
     {
       #ifdef BUZZER_PIN
-			openBuzzer(3, 11);
+        if(touchSound == true) BUZZER_PLAY(sound_keypress);
       #endif
       return i;
     }
@@ -150,14 +150,17 @@ u16 Key_value(u8 total_rect,const GUI_RECT* menuRect)
   return IDLE_TOUCH;
 }
 
-void loopTouchScreen(void)
+void loopTouchScreen(void) // Handle in interrupt
 {
   static u8 touch;
   if(!XPT2046_Read_Pen())
   {
-    if(touch>=2)
+    if(touch >= 20) // 20ms
     {
-      touchScreenIsPress=true;
+      touchScreenIsPress = true;
+      #ifdef LCD_LED_PWM_CHANNEL
+        LCD_Dim_Idle_Timer_Reset();
+      #endif
     }
     else
     {
@@ -166,8 +169,11 @@ void loopTouchScreen(void)
   }
   else
   {
-    touchScreenIsPress=false;
-    touch=0;
+    touchScreenIsPress = false;
+    touch = 0;
+    #ifdef LCD_LED_PWM_CHANNEL
+      LCD_Dim_Idle_Timer();
+    #endif
   }
 }
 
@@ -177,7 +183,7 @@ u8 isPress(void)
 }
 
 
-void (*TSC_ReDrawIcon)(u8 positon, u8 is_press);
+void (*TSC_ReDrawIcon)(u8 positon, u8 is_press) = NULL;
 
 u16 KEY_GetValue(u8 total_rect,const GUI_RECT* menuRect)
 {
@@ -186,22 +192,22 @@ u16 KEY_GetValue(u8 total_rect,const GUI_RECT* menuRect)
 
   u16 key_return=IDLE_TOUCH;
 
-  if (touchScreenIsPress)        
+  if (touchScreenIsPress)
   {
     if(firstPress)
     {
       key_num = Key_value(total_rect, menuRect);
       firstPress = false;
-      if(TGCODE==0 && MODEselect ==0)
-      TSC_ReDrawIcon(key_num, 1);
+      if(TSC_ReDrawIcon)
+        TSC_ReDrawIcon(key_num, 1);
     }
   }
   else
   {
     if (firstPress == false )
     {
-      if(TGCODE==0 && MODEselect ==0)
-      TSC_ReDrawIcon(key_num, 0);
+      if(TSC_ReDrawIcon)
+        TSC_ReDrawIcon(key_num, 0);
       key_return = key_num;
       key_num = IDLE_TOUCH;
       firstPress = true;
@@ -219,10 +225,10 @@ typedef enum
   LONG_PRESS,
 }KEY_STATUS;
 
-#define KEY_DOUOBLE_SPACE        15     //�೤ʱ���ڵ�������ж�Ϊ˫��
-#define KEY_LONG_PRESS_START     200     //��������ÿ�ʼ�ж�Ϊ ���� ��ֵ
+#define KEY_DOUOBLE_SPACE        15     //锟洁长时锟斤拷锟节碉拷锟斤拷锟斤拷锟斤拷卸锟轿?双锟斤拷
+#define KEY_LONG_PRESS_START     200     //锟斤拷锟斤拷锟斤拷锟斤拷每锟绞硷拷卸锟轿? 锟斤拷锟斤拷 锟斤拷值
 
-#define KEY_LONG_PRESS_SPACE_MAX 10     //����ʱ ���÷���һ�μ�ֵ
+#define KEY_LONG_PRESS_SPACE_MAX 10     //锟斤拷锟斤拷时 锟筋长锟斤拷梅锟斤拷锟揭伙拷渭锟街?
 #define KEY_LONG_PRESS_SPACE_MIN 2      //����ʱ ��̶�÷���һ�μ�ֵ
 
 //u16 KEY_GetValue(u8 total_rect,const GUI_RECT* menuRect)
@@ -235,11 +241,11 @@ typedef enum
 
 //  static KEY_STATUS nowStatus = NO_CLICK;    //������ǰ��״̬
 
-//  if(touchScreenIsPress)        
+//  if(touchScreenIsPress)
 //  {
 //    switch(nowStatus)
 //    {
-//      case NO_CLICK: 
+//      case NO_CLICK:
 //        nowStatus=FIRST_CLICK;
 //        first_key=Key_value(total_rect,menuRect);
 //        first_time=OS_GetTime();
@@ -256,10 +262,10 @@ typedef enum
 //      case FIRST_RELEASE:
 //        if(first_key == Key_value(total_rect,menuRect))
 //        {
-//          nowStatus  = SECOND_CLICK;   
-//          first_key |= KEY_DOUBLE_CLICK;  
+//          nowStatus  = SECOND_CLICK;
+//          first_key |= KEY_DOUBLE_CLICK;
 //        }
-//        else                  
+//        else
 //        {
 //          nowStatus=NO_CLICK;
 //        }
@@ -279,7 +285,7 @@ typedef enum
 //          if(long_press_space>KEY_LONG_PRESS_SPACE_MIN)
 //            long_press_space--;
 //          first_time=OS_GetTime();
-//          key_return = first_key;		
+//          key_return = first_key;
 //        }
 //        break;
 
@@ -291,7 +297,7 @@ typedef enum
 //  {
 //    switch(nowStatus)
 //    {
-//      case FIRST_CLICK: 
+//      case FIRST_CLICK:
 //        nowStatus=FIRST_RELEASE;
 //        break;
 
@@ -328,9 +334,9 @@ u16 KNOB_GetRV(GUI_RECT *knob)
   static u16 oldx=0,oldy=0;
   static u32 mytime;
 
-  if(touchScreenIsPress && OS_GetTime() > mytime)
+  if(touchScreenIsPress && OS_GetTimeMs() > mytime)
   {
-    mytime=OS_GetTime();
+    mytime = OS_GetTimeMs() + 10;
     TS_Get_Coordinates(&x,&y);
     if(x>knob->x0&&x<knob->x1&&y>knob->y0&&y<knob->y1)
     {
@@ -381,96 +387,9 @@ u16 KNOB_GetRV(GUI_RECT *knob)
     }
   }
   if(key_return != IDLE_TOUCH)
-  {		
+  {
     oldx=x;
     oldy=y;
   }
   return key_return;
 }
-
-#ifdef BUZZER_PIN
-void TIM3_Config(u16 psc,u16 arr)
-{
-	NVIC_InitTypeDef NVIC_InitStructure;
-
-	NVIC_InitStructure.NVIC_IRQChannel = TIM3_IRQn;  
-	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;  
-	NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0; 
-	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE; 
-	NVIC_Init(&NVIC_InitStructure); 
-
-	RCC->APB1ENR|=1<<1;
- 	TIM3->ARR=arr;
-	TIM3->PSC=psc;
-  TIM3->SR = (uint16_t)~(1<<0);
-	TIM3->DIER|=1<<0;
-	TIM3->CNT =0;
-	TIM3->CR1 &= ~(0x01);
-}
-
-void Buzzer_Config(void)
-{  
-  GPIO_InitSet(BUZZER_PIN, MGPIO_MODE_OUT_PP, 0);
-  
-	TIM3_Config(999, F_CPUM-1);  //1Khz
-}
-
-void Buzzer_DeConfig(void)
-{
-  GPIO_InitSet(BUZZER_PIN, MGPIO_MODE_IPN, 0);
-}
-
-typedef struct{
-	u16 h_us,
-	    l_us,
-	    num;
-}BUZZER;
-
-static BUZZER buzzer;
-
-/*  */
-void openBuzzer(u16 h_us, u16 l_us)   
-{
-  if(infoSettings.silent) return;
-  
-  buzzer.h_us = h_us;
-  buzzer.l_us = l_us;
-  if( h_us == 80 )
-    buzzer.num = 1000;
-  else
-    buzzer.num = 500;        
-
-  TIM3->CR1 |= 0x01;               //ʹ�ܶ�ʱ��3	
-}
-void closeBuzzer(void)   
-{
-	buzzer.num = 0;
-	TIM3->CR1 &= ~(0x01);
-}
-
-void TIM3_IRQHandler(void)   //TIM3�ж�
-{
-  static bool flag = false;
-  if ((TIM3->SR&0x01) != 0 ) //���ָ����TIM�жϷ������:TIM �ж�Դ 
-  {
-    flag = !flag;    
-    if( flag )
-    {
-      TIM3->ARR = buzzer.h_us;
-    }
-    else
-    {
-      TIM3->ARR = buzzer.l_us;
-    }
-    
-    GPIO_SetLevel(BUZZER_PIN, flag);
-    buzzer.num--;
-    if( buzzer.num == 0 )
-    {
-      TIM3->CR1 &= ~(0x01);
-    }
-
-    TIM3->SR = (uint16_t)~(1<<0);  //���TIMx���жϴ�����λ:TIM �ж�Դ 
-  }
-}
-#endif

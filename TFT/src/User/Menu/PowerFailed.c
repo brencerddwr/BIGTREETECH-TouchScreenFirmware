@@ -4,7 +4,6 @@
 BREAK_POINT  infoBreakPoint;
 char powerFailedFileName[256];
 
-static bool powerFailedSave = false;
 static bool create_ok = false;
 
 void powerFailedSetDriverSource(char *src)
@@ -13,50 +12,38 @@ void powerFailedSetDriverSource(char *src)
   strcat(powerFailedFileName, BREAK_POINT_FILE);
 }
 
-void powerFailedEnable(bool enable)
-{
-  powerFailedSave = enable;
-}
-
 void clearPowerFailed(void)
 {
   memset(&infoBreakPoint, 0, sizeof(BREAK_POINT));
 }
 
 FIL fpPowerFailed;
-bool powerFailedCreate(char *path) 
-{ 
+bool powerFailedCreate(char *path)
+{
   UINT br;
-  
+
   create_ok = false;
 
   if(infoFile.source != TFT_SD)  return false;//support SD Card only now
-  
+
   if(f_open(&fpPowerFailed, powerFailedFileName, FA_OPEN_ALWAYS | FA_WRITE) != FR_OK)  return false;
-  
+
   f_write(&fpPowerFailed, path, MAX_PATH_LEN, &br);
   f_write(&fpPowerFailed, &infoBreakPoint, sizeof(BREAK_POINT), &br);
   f_sync(&fpPowerFailed);
 
   create_ok = true;
-  return true;  
+  return true;
 }
 
-void powerFailedCache(u32 offset) 
+void powerFailedCache(u32 offset)
 {
   UINT        br;
-  static u32  nowTime = 0;
 
-  if (OS_GetTime() < nowTime + 100)     return;
-  if (create_ok == false )              return;
-  if (powerFailedSave == false)         return;
-  if (isPause() == true)                return;
-  
-  if (infoCacheCmd.count != 0)          return;
-
-  powerFailedSave = false;
-
-  nowTime = OS_GetTime();
+  if (infoBreakPoint.axis[Z_AXIS] == coordinateGetAxisTarget(Z_AXIS)) return; // Z axis no raise.
+  if (create_ok == false )      return;
+  if (isPause() == true)        return;
+  if (infoCacheCmd.count != 0)  return;
 
   infoBreakPoint.offset = offset;
   for (AXIS i = X_AXIS; i < TOTAL_AXIS; i++)
@@ -64,15 +51,15 @@ void powerFailedCache(u32 offset)
     infoBreakPoint.axis[i] = coordinateGetAxisTarget(i);
   }
   infoBreakPoint.feedrate = coordinateGetFeedRate();
-  infoBreakPoint.speed = speedGetPercent(0);
-  infoBreakPoint.flow = speedGetPercent(1);
-  
+  infoBreakPoint.speed = speedGetPercent(0); // Move speed percent
+  infoBreakPoint.flow = speedGetPercent(1); // Flow percent
+
   for(TOOL i = BED; i < HEATER_NUM; i++)
   {
     infoBreakPoint.target[i] = heatGetTargetTemp(i);
   }
   infoBreakPoint.nozzle = heatGetCurrentToolNozzle();
-  
+
   for(u8 i = 0; i < FAN_NUM; i++)
   {
    infoBreakPoint.fan[i] = fanGetSpeed(i);
@@ -85,17 +72,17 @@ void powerFailedCache(u32 offset)
   f_sync(&fpPowerFailed);
 }
 
-void powerFailedClose(void) 
+void powerFailedClose(void)
 {
   if(create_ok==false)   return;
-  
+
   f_close(&fpPowerFailed);
 }
 
-void  powerFailedDelete(void) 
+void  powerFailedDelete(void)
 {
   if(create_ok==false)   return;
-  
+
   f_unlink(powerFailedFileName);
   clearPowerFailed();
 }
@@ -116,7 +103,7 @@ static bool powerFailedExist(void)
 bool powerFailedlSeek(FIL* fp)
 {
   if(f_lseek(fp,infoBreakPoint.offset) != FR_OK)  return false;
-  
+
   return true;
 }
 
@@ -127,7 +114,7 @@ bool powerOffGetData(void)
   UINT  br;
 
   if(f_open(&fp, powerFailedFileName, FA_OPEN_EXISTING|FA_READ) != FR_OK)        return false;
-  if(f_lseek(&fp, MAX_PATH_LEN)                                 != FR_OK)        return false;  
+  if(f_lseek(&fp, MAX_PATH_LEN)                                 != FR_OK)        return false;
   if(f_read(&fp, &infoBreakPoint,  sizeof(infoBreakPoint), &br) != FR_OK)        return false;
 
   for(TOOL i = BED; i < HEATER_NUM; i++)
@@ -135,34 +122,41 @@ bool powerOffGetData(void)
     if(infoBreakPoint.target[i] != 0)
       mustStoreCacheCmd("%s S%d\n", heatWaitCmd[i], infoBreakPoint.target[i]);
   }
-  
+
   for(u8 i=0; i < FAN_NUM; i++)
   {
     if(infoBreakPoint.fan[i] != 0)
       mustStoreCacheCmd("%s S%d\n", fanCmd[i], infoBreakPoint.fan[i]);
   }
-  
+
   mustStoreCacheCmd("%s\n", tool_change[infoBreakPoint.nozzle - NOZZLE0]);
   if(infoBreakPoint.feedrate != 0)
   {
-    mustStoreCacheCmd("G92 Z%.3f\n", infoBreakPoint.axis[Z_AXIS]);    
-    mustStoreCacheCmd("G1 Z%d\n", limitValue(0, infoBreakPoint.axis[Z_AXIS]+10, Z_MAX_POS));
-    #ifdef HOME_BEFORE_PLR
+    int btt_zraise = 0;
+    if(infoSettings.btt_ups == 1)
+        btt_zraise = infoSettings.powerloss_z_raise;
+    mustStoreCacheCmd("G92 Z%.3f\n", infoBreakPoint.axis[Z_AXIS]+ btt_zraise);
+    mustStoreCacheCmd("G1 Z%.3f\n", infoBreakPoint.axis[Z_AXIS]+infoSettings.powerloss_z_raise);
+    if (infoSettings.powerloss_home)
+    {
       mustStoreCacheCmd("G28\n");
-      mustStoreCacheCmd("G1 Z%d\n", limitValue(0, infoBreakPoint.axis[Z_AXIS]+10, Z_MAX_POS));
-    #else
-      mustStoreCacheCmd("G28 X0 Y0\n");
-    #endif
+      mustStoreCacheCmd("G1 Z%.3f\n", infoBreakPoint.axis[Z_AXIS] + infoSettings.powerloss_z_raise);
+    }
+    else
+    {
+      mustStoreCacheCmd("G28 R0 XY\n");
+    }
+
     mustStoreCacheCmd("M83\n");
     mustStoreCacheCmd("G1 E30 F300\n");
-    mustStoreCacheCmd("G1 E-%d F4800\n", NOZZLE_PAUSE_RETRACT_LENGTH);
+    mustStoreCacheCmd("G1 E-%d F4800\n", infoSettings.pause_retract_len);
     mustStoreCacheCmd("G1 X%.3f Y%.3f Z%.3f F3000\n",
                           infoBreakPoint.axis[X_AXIS],
                           infoBreakPoint.axis[Y_AXIS],
                           infoBreakPoint.axis[Z_AXIS]);
-    mustStoreCacheCmd("G1 E%d F4800\n", NOZZLE_PAUSE_PURGE_LENGTH);
+    mustStoreCacheCmd("G1 E%d F4800\n", infoSettings.resume_purge_len);
     mustStoreCacheCmd("G92 E%.5f\n",infoBreakPoint.axis[E_AXIS]);
-    mustStoreCacheCmd("G1 F%d\n",infoBreakPoint.feedrate);        
+    mustStoreCacheCmd("G1 F%d\n",infoBreakPoint.feedrate);
 
     if(infoBreakPoint.relative_e == false)
     {
@@ -182,32 +176,32 @@ void menuPowerOff(void)
 {
   u16 key_num = IDLE_TOUCH;
   clearPowerFailed();
-  GUI_Clear(BK_COLOR);
-  GUI_DispString((LCD_WIDTH - GUI_StrPixelWidth(textSelect(LABEL_LOADING)))/2, LCD_HEIGHT/2 - BYTE_HEIGHT, textSelect(LABEL_LOADING),1);
- 
+  GUI_Clear(lcd_colors[infoSettings.bg_color]);
+  GUI_DispString((LCD_WIDTH - GUI_StrPixelWidth(textSelect(LABEL_LOADING)))/2, LCD_HEIGHT/2 - BYTE_HEIGHT, textSelect(LABEL_LOADING));
+
   if(mountFS()==true && powerFailedExist())
   {
-    popupDrawPage(bottomDoubleBtn, textSelect(LABEL_POWER_FAILED), (u8* )infoFile.title, textSelect(LABEL_CONFIRM), textSelect(LABEL_CANNEL));
-    
+    popupDrawPage(bottomDoubleBtn, textSelect(LABEL_POWER_FAILED), (u8* )infoFile.title, textSelect(LABEL_CONFIRM), textSelect(LABEL_CANCEL));
+
     while(infoMenu.menu[infoMenu.cur]==menuPowerOff)
     {
       key_num = KEY_GetValue(2, doubleBtnRect);
       switch(key_num)
       {
-        case KEY_POPUP_CONFIRM:    
+        case KEY_POPUP_CONFIRM:
           powerOffGetData();
           infoMenu.menu[1] = menuPrintFromSource;
           infoMenu.menu[2] = menuBeforePrinting;
           infoMenu.cur=2;
           break;
-        
+
         case KEY_POPUP_CANCEL:
           powerFailedDelete();
           ExitDir();
           infoMenu.cur--;
-          break;        
+          break;
       }
-      
+
       #ifdef SD_CD_PIN
       if(isVolumeExist(infoFile.source) != true)
       {
@@ -224,5 +218,3 @@ void menuPowerOff(void)
     infoMenu.cur--;
   }
 }
-
-

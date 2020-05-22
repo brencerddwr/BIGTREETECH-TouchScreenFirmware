@@ -1,156 +1,86 @@
 #include "Mode.h"
 #include "includes.h"
 
+bool serialHasBeenInitialized = false;
+bool freshboot = true;
 
 void Serial_ReSourceDeInit(void)
 {
-  memset(&infoHost, 0, sizeof(infoHost));
-  resetInfoFile();
-  SD_DeInit();
-#ifdef BUZZER_PIN
-  Buzzer_DeConfig();
-#endif
-  Serial_DeConfig();
+  if (!serialHasBeenInitialized) return;
+  serialHasBeenInitialized = false;
+  Serial_DeInit();
 }
 
 void Serial_ReSourceInit(void)
 {
-#ifdef BUZZER_PIN
-  Buzzer_Config();
-#endif
-  Serial_Config(infoSettings.baudrate);
-  
-#ifdef U_DISK_SUPPROT
-  USBH_Init(&USB_OTG_Core, USB_OTG_FS_CORE_ID, &USB_Host, &USBH_MSC_cb, &USR_cb);
-#endif
+  if (serialHasBeenInitialized) return;
+  serialHasBeenInitialized = true;
+
+  memset(&infoHost, 0, sizeof(infoHost));
+  reminderSetUnConnected(); // reset connect status
+  Serial_Init(infoSettings.baudrate);
 }
 
 void infoMenuSelect(void)
 {
+  #ifdef CLEAN_MODE_SWITCHING_SUPPORT
+    Serial_ReSourceInit();
+  #endif
   infoMenu.cur = 0;
   switch(infoSettings.mode)
   {
     case SERIAL_TSC:
     {
-      Serial_ReSourceInit();
-      GUI_SetColor(FK_COLOR);
-      GUI_SetBkColor(BK_COLOR);
-      infoMenu.menu[infoMenu.cur] = menuMain;
-      
-      #ifdef SHOW_BTT_BOOTSCREEN
-        u32 startUpTime = OS_GetTime();
-        heatSetUpdateTime(100);
-        LOGO_ReadDisplay();
-        while(OS_GetTime() - startUpTime < 300)  //Display 3s logo
-        {                                                                                                                     
-          loopProcess();	
-        }
-        heatSetUpdateTime(300);
+      #ifndef CLEAN_MODE_SWITCHING_SUPPORT
+        Serial_ReSourceInit();
       #endif
-        
-      reminderMessage(LABEL_UNCONNECTED, STATUS_UNCONNECT); // reset connect status
+
+      #ifdef BUZZER_PIN
+        Buzzer_Config();
+      #endif
+      GUI_SetColor(lcd_colors[infoSettings.font_color]);
+      GUI_SetBkColor(lcd_colors[infoSettings.bg_color]);
+
+      if(infoSettings.unified_menu == 1) //if Unified menu is selected
+        infoMenu.menu[infoMenu.cur] = menuStatus; //status screen as default screen on boot
+      else
+        infoMenu.menu[infoMenu.cur] = classicMenu;   // classic UI
+
+      #ifdef SHOW_BTT_BOOTSCREEN
+        if (freshboot)
+        {
+          u32 startUpTime = OS_GetTimeMs();
+          heatSetUpdateTime(TEMPERATURE_QUERY_FAST_DURATION);
+          LOGO_ReadDisplay();
+          while (OS_GetTimeMs() - startUpTime < 3000) //Display 3s logo
+          {
+            loopProcess();
+          }
+          heatSetUpdateTime(TEMPERATURE_QUERY_SLOW_DURATION);
+          freshboot = false;
+        }
+      #endif
       break;
     }
-      
+
     #ifdef ST7920_SPI
+
     case LCD12864:
-      GUI_SetColor(ST7920_FNCOLOR);
-      GUI_SetBkColor(ST7920_BKCOLOR);
-      infoMenu.menu[infoMenu.cur] = menuST7920;      
+
+      #ifdef BUZZER_PIN
+        Buzzer_DeConfig();  // Disable buzzer in LCD12864 Simulations mode.
+      #endif
+
+      #ifdef LED_COLOR_PIN
+        #ifndef KEEP_KNOB_LED_COLOR_MARLIN_MODE
+          knob_LED_DeInit();
+        #endif
+      #endif
+      GUI_SetColor(lcd_colors[infoSettings.marlin_mode_font_color]);
+      GUI_SetBkColor(lcd_colors[infoSettings.marlin_mode_bg_color]);
+      infoMenu.menu[infoMenu.cur] = menuST7920;
       break;
+
     #endif
   }
 }
-
-u32 select_mode [SELECTMODE]={
-    ICON_MARLIN,
-    ICON_BIGTREE,
-};
-
-#if LCD_ENCODER_SUPPORT
-void menuMode(void)
-{  
-  #if defined(ST7920_BANNER_TEXT)
-    RADIO modeRadio = {
-      {(u8*)"Serial Touch Screen", (u8*)ST7920_BANNER_TEXT, (u8*)"LCD2004 Simulator"},
-      SIMULATOR_XSTART, SIMULATOR_YSTART,
-      BYTE_HEIGHT*2, 2,
-      0
-      };
-  #else
-    RADIO modeRadio = {
-      {(u8*)"Serial Touch Screen", (u8*)"12864 Simulator", (u8*)"LCD2004 Simulator"},
-      SIMULATOR_XSTART, SIMULATOR_YSTART,
-      BYTE_HEIGHT*2, 2,
-      0
-      };
-  #endif
-  
-  MKEY_VALUES  key_num = MKEY_IDLE;
-  MODEselect = 1;
-  bool keyback = false;
-  
-  int16_t nowEncoder = encoderPosition = 0;
-  int8_t  nowMode = modeRadio.select = infoSettings.mode;
-  
-  GUI_Clear(BLACK);
-  //RADIO_Create(&modeRadio);
-  Serial_ReSourceDeInit();
-  
-  for(u8 i=0;i<SELECTMODE;i++)
-  {
-    lcd_frame_display(rect_of_mode[i].x0,rect_of_mode[i].y0-BYTE_HEIGHT,selecticonw,selecticonw,ICON_ADDR(select_mode[i]));
-  }
-  
-  selectmode(nowMode);
-  
-  while(!XPT2046_Read_Pen() || LCD_ReadBtn(LCD_BUTTON_INTERVALS));      //wait for button release
-  
-  while(infoMenu.menu[infoMenu.cur] == menuMode)
-  {
-    key_num = MKeyGetValue();
-    
-		if(keyback)
-    {
-			Touch_Sw(1);
-			while(!XPT2046_Read_Pen());
-			break;
-    }
-    
-    if(LCD_ReadBtn(LCD_BUTTON_INTERVALS))
-    {
-      break;
-    }
-    if(encoderPosition)
-    {
-      nowMode = limitValue(0, nowMode + encoderPosition, modeRadio.num - 1);
-      selectmode(nowMode);
-      encoderPosition = 0;    
-    }
-    
-    LCD_LoopEncoder();
-    
-    if(key_num==MKEY_1)
-		{	
-			Touch_Sw(2);
-			nowMode = SERIAL_TSC;
-      keyback = true;
-		}
-		
-		if(key_num==MKEY_0)
-		{
-			Touch_Sw(3);
-			nowMode = LCD12864;
-      keyback = true;
-		}
-  }
-  if(infoSettings.mode != nowMode)
-  {
-    infoSettings.mode = nowMode;
-    storePara();
-  }
-  
-  MODEselect = 0;
-  infoMenuSelect();
-}
-#endif

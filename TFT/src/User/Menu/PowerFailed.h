@@ -14,7 +14,7 @@ typedef struct
   float axis[TOTAL_AXIS];
   u32   feedrate;
   u16   speed,flow;
-  u16	  target[HEATER_NUM],
+  u16	  target[HEAT_NUM],
         fan[FAN_NUM];
   TOOL  nozzle;
   u32	  offset;
@@ -31,7 +31,6 @@ void powerFailedCache(u32 offset);
 void powerFailedClose(void);
 void powerFailedDelete(void);
 
-void powerFailedEnable(bool enable);
 bool powerFailedlSeek(FIL* fp);
 
 #endif
